@@ -1,0 +1,17 @@
+1 the language
+(1)class关键字
+class Model(dict, metaclass=ModelMetaclass):class关键字确定了这行代码是一个类的定义，Model是类名，dict是父类，metaclass指明了类构造时要执行的一段代码
+(2)特殊方法
+格式为__xxx__的方法是特殊方法，该方法由python解释器根据特殊的语句触发。例如，class语境中定义的方法 def __init__(self, **kw)，将由创建类的对象时执行。
+__init__(self, **kw)==>创建类对象时执行
+__getattr__(self, key)==>执行.运算符时触发，例如s.name
+__setattr__(self, key, value)==>属性赋值时触发
+(3)self关键字(也许不是关键字)？或者说类似于java中的this
+class语境中的函数定义，所有函数的第一个变量，如果写成self，那么是对当前实例的引用。
+
+2 metaclass机制
+Python解释器在加载一个class定义时，会创建一个内存中的class对象cls，代表这个class定义。
+如果class的定义包含关键字metaclass，例如，class Model(dict, metaclass=ModelMetaclass):
+这时，python解释器会把创建好的class对象cls传入metaclass指向的class定义中，并执行一个特殊方法def __new__(cls, name, bases, attrs):
+例如上面的例子，在加载Model时就会执行这个方法，cls为Model的内存对象。name为'Model',bases是Model的父类tuple,attrs是Model中定义的所有属性。
+需要注意的是，Model类的所有子类，在被加载时，也会调用__new__(cls, name, bases, attrs)，并且传入的cls是对应的子类的实例。

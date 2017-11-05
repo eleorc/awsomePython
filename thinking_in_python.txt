@@ -21,6 +21,34 @@ Python解释器在加载一个class定义时，会创建一个内存中的class对象cls，代表这个class
 这时，python解释器会把创建好的class对象cls传入metaclass指向的class定义中，并执行一个特殊方法def __new__(cls, name, bases, attrs):
 例如上面的例子，在加载Model时就会执行这个方法，cls为Model的内存对象。name为'Model',bases是Model的父类tuple,attrs是Model中定义的所有属性。
 需要注意的是，Model类的所有子类，在被加载时，也会调用__new__(cls, name, bases, attrs)，并且传入的cls是对应的子类的实例。
+测试metaclass的运行时机
+class StudentMetaClass(type):
+    def __new__(cls, name, bases, attrs):
+      print('print metaclass __new__ method parameters')	
+      print('cls ==> %s' % cls)
+      print('name ==> %s' % name)
+      print('bases ==> %s' % bases)
+      print('attrs ==> %s' % attrs)
+      return type.__new__(cls, name, bases, attrs)
+class Student(dict,metaclass=StudentMetaClass):
+    print('load class Student')
+    id = '1'
+    def dosomething():
+      pass
+输出为：
+load class Student
+print metaclass __new__ method parameters
+cls ==> <class '__main__.StudentMetaClass'>
+name ==> Student
+bases ==> <class 'dict'>
+attrs ==> {'__module__': '__main__', 'id': '1', 'dosomething': <function Student
+.dosomething at 0x0000000000A6D620>, '__qualname__': 'Student'}
+结论：
+(1)python在加载class语句块时，语句块内的每一行代码都会被执行。
+(2)如果class指定了metaclass关键字，那么python解释器会去执行metaclass对应类的__new__方法。
+(3)__new__方法最后需要使用type.__new__(cls, name, bases, attrs)返回,否则类型没有创建成功。
+(4)__new__的参数中，第一个参数cls的值是metaclass类型
+(5)class中定义的函数，也会被放进attrs中
 
 [item 5]Coroutine
 协程，属于一种特殊的函数调用机制。

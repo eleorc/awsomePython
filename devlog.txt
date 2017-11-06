@@ -30,3 +30,138 @@ awesome-python3-webapp/  <-- 根目录
 +- ios/                  <-- 存放iOS App工程
 |
 +- LICENSE               <-- 代码LICENSE
+
+
+########################
+Part 2 - 遇到的问题
+########################
+[problem 1]coroutine调用导致的错误。测试代码中使用了错误的运行coroutine的方法。coroutine应该交给消息循环对象来运行。
+测试day4的代码
+[root@MyCentOS7 www]# cat test_models.py 
+###---
+import asyncio
+import orm
+from models import User, Blog, Comment
+loop = asyncio.get_event_loop()
+@asyncio.coroutine
+def test():
+    yield from orm.create_pool(loop,user='root', password='root', db='awesome',host='192.168.255.128')
+    u = User(name='Test', email='test@example.com', passwd='1234567890', image='about:blank')
+    yield from u.save()
+for x in test():
+    pass
+###---
+该代码执行时报错
+###error
+[root@MyCentOS7 www]# python test_models.py 
+djl:test:will get reader,writer: 192.168.255.128 3306 <_UnixSelectorEventLoop running=False closed=False debug=False>
+Traceback (most recent call last):
+  File "/usr/local/python3.6/lib/python3.6/site-packages/aiomysql/connection.py", line 438, in _connect
+    self._reader, self._writer = yield from asyncio.open_connection(self._host, self._port,loop=self._loop)
+  File "/usr/local/python3.6/lib/python3.6/asyncio/streams.py", line 75, in open_connection
+    lambda: protocol, host, port, **kwds)
+  File "/usr/local/python3.6/lib/python3.6/asyncio/base_events.py", line 731, in create_connection
+    yield from tasks.wait(fs, loop=self)
+  File "/usr/local/python3.6/lib/python3.6/asyncio/tasks.py", line 313, in wait
+    return (yield from _wait(fs, timeout, return_when, loop))
+  File "/usr/local/python3.6/lib/python3.6/asyncio/tasks.py", line 396, in _wait
+    yield from waiter
+AssertionError: yield from wasn't used with future
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "test_models.py", line 15, in <module>
+    for x in test():
+  File "test_models.py", line 9, in test
+    yield from orm.create_pool(loop,user='root', password='root', db='awesome',host='192.168.255.128')
+  File "/root/project/awsomePython/awesome-python3-webapp/www/orm.py", line 26, in create_pool
+    loop=loop
+  File "/usr/local/python3.6/lib/python3.6/site-packages/aiomysql/utils.py", line 57, in __await__
+    resp = yield from self._coro
+  File "/usr/local/python3.6/lib/python3.6/site-packages/aiomysql/pool.py", line 28, in _create_pool
+    yield from pool._fill_free_pool(False)
+  File "/usr/local/python3.6/lib/python3.6/site-packages/aiomysql/pool.py", line 163, in _fill_free_pool
+    **self._conn_kwargs)
+  File "/usr/local/python3.6/lib/python3.6/site-packages/aiomysql/utils.py", line 52, in __iter__
+    resp = yield from self._coro
+  File "/usr/local/python3.6/lib/python3.6/site-packages/aiomysql/connection.py", line 76, in _connect
+    yield from conn._connect()
+  File "/usr/local/python3.6/lib/python3.6/site-packages/aiomysql/connection.py", line 467, in _connect
+    self._host) from e
+pymysql.err.OperationalError: (2003, "Can't connect to MySQL server on '192.168.255.128'")
+###error
+
+
+
+追查过程：
+(1)看到报错信息，pymysql.err.OperationalError: (2003, "Can't connect to MySQL server on '192.168.255.128'")，怀疑是mysql数据库有问题。
+--重新在centos上安装了mysql，然后测试mysql客户端可以正常连接。排除mysql问题。
+(2)使用pymysql模块可以正常连接mysql。怀疑是asyncio模块的版本有问题
+[root@MyCentOS7 www]# cat test_Mysql.py 
+#!/usr/bin/python3
+import pymysql
+# 打开数据库连接
+db = pymysql.connect("localhost","root","root","test" )
+# 使用 cursor() 方法创建一个游标对象 cursor
+cursor = db.cursor()
+# 使用 execute()  方法执行 SQL 查询 
+cursor.execute("SELECT VERSION()")
+# 使用 fetchone() 方法获取单条数据.
+data = cursor.fetchone()
+print ("Database version : %s " % data)
+# 关闭数据库连接
+db.close()
+(3)重新安装了asyncio模块，还是报错
+pip uninstall asyncio 
+pip uninstall pymysql 
+pip install asyncio==0.0.7
+(4)查看错误栈，定位到出错的代码行，测试导致错误的函数。发现这个函数在运行时没报错！！！
+asyncio.open_connection(self._host, self._port,loop=self._loop)
+
+测试可以执行
+import asyncio
+async def test(loop):
+    reader,writer=await asyncio.open_connection('192.168.255.128', 3306,loop=loop)
+    print('get conn')
+    print(reader)
+loop = asyncio.get_event_loop()
+coro = test(loop)
+loop.run_until_complete(coro)
+(5)这时想到是不是调用这个函数的地方出错了。问题指向了奇怪的调用方式
+for x in test():
+    pass
+就是它的问题。
+(6)pdb调试
+[root@MyCentOS7 www]# python -m pdb test_models.py 
+> /root/project/awsomePython/awesome-python3-webapp/www/test_models.py(1)<module>()
+-> import asyncio
+(Pdb) n
+> /root/project/awsomePython/awesome-python3-webapp/www/test_models.py(2)<module>()
+-> import orm
+(Pdb) n
+> /root/project/awsomePython/awesome-python3-webapp/www/test_models.py(3)<module>()
+-> from models import User, Blog, Comment
+(Pdb) n
+> /root/project/awsomePython/awesome-python3-webapp/www/test_models.py(5)<module>()
+-> loop = asyncio.get_event_loop()
+(Pdb) n
+> /root/project/awsomePython/awesome-python3-webapp/www/test_models.py(7)<module>()
+-> @asyncio.coroutine
+(Pdb) n
+> /root/project/awsomePython/awesome-python3-webapp/www/test_models.py(15)<module>()
+-> for x in test():
+(Pdb) n
+> /root/project/awsomePython/awesome-python3-webapp/www/test_models.py(16)<module>()
+-> pass
+(Pdb) n
+> /root/project/awsomePython/awesome-python3-webapp/www/test_models.py(15)<module>()
+-> for x in test():
+(Pdb) n
+pymysql.err.OperationalError: (2003, "Can't connect to MySQL server on '192.168.255.128'")
+> /root/project/awsomePython/awesome-python3-webapp/www/test_models.py(15)<module>()
+-> for x in test():
+(Pdb) n
+--Return--
+> /root/project/awsomePython/awesome-python3-webapp/www/test_models.py(15)<module>()->None
+-> for x in test():
